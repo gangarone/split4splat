@@ -162,63 +162,57 @@ def compute_auto_resolution(w: int, h: int, fov: float) -> int:
 # ----------------------------------------------------------------------------
 # Streamlit App
 st.set_page_config(page_title="Split 4 Splat", layout="wide")
-st.title("Split 4 Splat – equirectangular 2 persp splitter")
+
+# Sposta il titolo nella sidebar
+st.sidebar.markdown(
+    """
+    <div style='text-align: center; margin-bottom: 0.5em;'>
+        <span style='font-size:2.2em; font-weight: bold;'>Split 4 Splat</span><br>
+        <span style='font-size:1em; color: #888;'>equirectangular 2 persp splitter</span>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+# Rimuovi il titolo dall'area principale
+# st.title("Split 4 Splat – equirectangular 2 persp splitter")
 
 # Sidebar: Input mode e Dropzone/file browse button
-mode = st.sidebar.radio("Input mode", ["Images sequence", "Local video folder"], key="mode")
+# mode = st.sidebar.radio("Input mode", ["Images sequence", "Local video folder"], key="mode")
 
 # Funzione per caricare immagini dalla cartella root
 def load_root_images():
-   """Carica automaticamente le immagini dalla cartella root (dove si trova app.py)"""
-   root_folder = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
-   image_extensions = ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG']
-   root_images = []
+    """Carica automaticamente le immagini dalla cartella root (dove si trova app.py)"""
+    root_folder = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
+    image_extensions = ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG']
+    root_images = []
   
-   try:
-       for file in os.listdir(root_folder):
-           if any(file.endswith(ext) for ext in image_extensions):
+    try:
+        for file in os.listdir(root_folder):
+            if any(file.endswith(ext) for ext in image_extensions):
                root_images.append(os.path.join(root_folder, file))
-   except:
+    except:
        pass
   
-   return sorted(root_images)
+    return sorted(root_images)
 
-if mode == "Images sequence":
-   items = st.sidebar.file_uploader("Drop images here (PNG/JPG)", type=["png","jpg","jpeg"], accept_multiple_files=True, key="uploader")
-  
-   # Se non ci sono file caricati, prova a caricare dalle immagini root
-   if not items:
-       root_images = load_root_images()
-       if root_images:
-           st.sidebar.info(f"Using {len(root_images)} images from root folder")
-           items = root_images
-           is_video = False
-           total = len(items)
-       else:
-           st.sidebar.info("Please upload at least one image or place images in the root folder.")
-           st.stop()
-   else:
-       is_video = False
-       total = len(items)
+# Usa solo la modalità Images sequence
+items = st.sidebar.file_uploader("Drop images here (PNG/JPG)", type=["png","jpg","jpeg"], accept_multiple_files=True, key="uploader")
+
+# Se non ci sono file caricati, prova a caricare dalle immagini root
+if not items:
+    root_images = load_root_images()
+    if root_images:
+        st.sidebar.info(f"Using {len(root_images)} demo images")
+        items = root_images
+        is_video = False
+        total = len(items)
+    else:
+        st.sidebar.info("Please upload at least one image or place images in the root folder.")
+        st.stop()
 else:
-   folder = st.sidebar.text_input("Video folder", os.getcwd(), key="folder")
-   if not os.path.isdir(folder):
-       st.sidebar.error("Invalid folder")
-       st.stop()
-   vids = [f for f in os.listdir(folder) if f.lower().endswith((".mp4",".mov"))]
-   if not vids:
-       st.sidebar.error("No videos found.")
-       st.stop()
-   vid = st.sidebar.selectbox("Select video", vids, key="vid_select")
-   reader = imageio.get_reader(os.path.join(folder, vid), "ffmpeg")
-   meta = reader.get_meta_data()
-   fps = meta.get("fps", 30)
-   n = int(meta.get("duration", 0) * fps)
-   rate = st.sidebar.number_input("Extraction fps", 0.1, 30.0, 1.0, 0.1, key="rate")
-   step = max(1, round(fps / rate))
-   items = list(range(0, n, step))
-   is_video = True
-   total = len(items)
+    is_video = False
+    total = len(items)
 
 # Sidebar separatore
 st.sidebar.markdown("---")
@@ -503,4 +497,3 @@ if process_button:
    # Show the success message and download button in order
    success_container.success("Processing completed!")
    download_container.download_button("Download ZIP of tiles", mem.getvalue(), file_name="tiles.zip", mime="application/zip")
-
