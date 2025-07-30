@@ -206,7 +206,7 @@ st.sidebar.markdown(
     """
     <div style='text-align: center; margin-bottom: 0.5em;'>
         <span style='font-size:2.2em; font-weight: bold;'>Split 4 Splat</span><br>
-        <span style='font-size:1em; color: #888;'>equirectangular 2 persp splitter</span>
+        <span style='font-size:1em; color: #888;'>equirectangular 2 persp splitter for gaussian splatting</span>
     </div>
     """,
     unsafe_allow_html=True
