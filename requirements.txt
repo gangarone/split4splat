@@ -1,0 +1,6 @@
+streamlit
+imageio
+py360convert
+numpy
+Pillow
+
