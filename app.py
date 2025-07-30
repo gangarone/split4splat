@@ -9,82 +9,92 @@ import zipfile
 import os
 import base64
 
+# Configurazione della pagina con cache migliorata
+st.set_page_config(page_title="Split 4 Splat", layout="wide")
+
 # -----------------------------------------------------------------------------
-# Helper functions
+# Helper functions con cache
 # -----------------------------------------------------------------------------
+@st.cache_data
 def to_rgba(arr: np.ndarray) -> np.ndarray:
-   if arr.shape[2] == 4:
-       return arr
-   h, w, _ = arr.shape
-   alpha = np.full((h, w, 1), 255, dtype=arr.dtype)
-   return np.concatenate([arr, alpha], axis=2)
+    if arr.shape[2] == 4:
+        return arr
+    h, w, _ = arr.shape
+    alpha = np.full((h, w, 1), 255, dtype=arr.dtype)
+    return np.concatenate([arr, alpha], axis=2)
 
+@st.cache_data
 def create_checkboard(width: int, height: int, tile_size: int = 16) -> Image.Image:
-   img = Image.new("RGB", (width, height), "white")
-   draw = ImageDraw.Draw(img)
-   c1, c2 = (220, 220, 220), (192, 192, 192)
-   for y in range(0, height, tile_size):
-       for x in range(0, width, tile_size):
-           fill = c1 if ((x//tile_size)+(y//tile_size)) % 2 == 0 else c2
-           draw.rectangle([x, y, x+tile_size, y+tile_size], fill=fill)
-   return img
+    img = Image.new("RGB", (width, height), "white")
+    draw = ImageDraw.Draw(img)
+    c1, c2 = (220, 220, 220), (192, 192, 192)
+    for y in range(0, height, tile_size):
+        for x in range(0, width, tile_size):
+            fill = c1 if ((x//tile_size)+(y//tile_size)) % 2 == 0 else c2
+            draw.rectangle([x, y, x+tile_size, y+tile_size], fill=fill)
+    return img
 
+@st.cache_data
 def make_preview(e_img: np.ndarray, scale_div: int = 12) -> Image.Image:
-   preview = Image.fromarray(to_rgba(e_img))
-   h, w = preview.height, preview.width
-   preview = preview.resize((max(1, w//scale_div), max(1, h//scale_div)), Image.Resampling.BILINEAR)
-   bg = create_checkboard(preview.width, preview.height).convert("RGBA")
-   bg.paste(preview, (0, 0), preview)
-   return bg
+    preview = Image.fromarray(to_rgba(e_img))
+    h, w = preview.height, preview.width
+    preview = preview.resize((max(1, w//scale_div), max(1, h//scale_div)), Image.Resampling.BILINEAR)
+    bg = create_checkboard(preview.width, preview.height).convert("RGBA")
+    bg.paste(preview, (0, 0), preview)
+    return bg
 
+@st.cache_data
 def get_perspective(e_img: np.ndarray, fov: float, yaw: float, pitch: float, res: int) -> np.ndarray:
-   return py360convert.e2p(e_img, fov_deg=fov, u_deg=yaw, v_deg=pitch, out_hw=(res, res))
+    return py360convert.e2p(e_img, fov_deg=fov, u_deg=yaw, v_deg=pitch, out_hw=(res, res))
 
-def draw_interactive_top_view_svg(splits: int, fov: float, selected_idx: int, enabled_cams: list):
+@st.cache_data
+def load_image_cached(file_path: str):
+    """Cache per il caricamento delle immagini"""
+    return np.array(Image.open(file_path).convert("RGBA"))
+
+@st.cache_data
+def compute_auto_resolution(w: int, h: int, fov: float) -> int:
+    max_w = w * (fov / 360)
+    vfov = 2*math.atan(math.tan(math.radians(fov)/2)*(h/w))
+    max_h = h * (math.degrees(vfov) / 180)
+    return max(1, int(min(max_w, max_h)))
+
+# Funzioni SVG ottimizzate con cache
+@st.cache_data
+def draw_interactive_top_view_svg(splits: int, fov: float, selected_idx: int, enabled_cams_tuple: tuple):
     """Crea solo la parte SVG della top view con numeri intorno al cerchio"""
-    size = 240  # Dimensione del SVG
+    enabled_cams = list(enabled_cams_tuple)  # Converte da tuple a list per la logica
+    size = 240
     center = size // 2
-    radius = 80  # Raggio del cerchio principale
-    
-    # Calcola l'angolo per ogni settore FOV
+    radius = 80
     half_fov = math.radians(fov / 2)
     
     svg_elements = []
-    
-    # Cerchio di sfondo
     svg_elements.append(f'<circle cx="{center}" cy="{center}" r="{radius}" fill="none" stroke="lightgray" stroke-width="2"/>')
     
-    # Genera i settori e i numeri
     for i in range(splits):
-        # Calcola l'angolo - Camera 1 a ore 12 (in alto)
         ang = i * 2 * math.pi / splits - math.pi/2
-        
-        # Punti per il settore FOV
         x1 = center + radius * math.cos(ang - half_fov)
         y1 = center + radius * math.sin(ang - half_fov)
         x2 = center + radius * math.cos(ang + half_fov)
         y2 = center + radius * math.sin(ang + half_fov)
         
-        # Determina il colore in base allo stato
         if i == selected_idx and i in enabled_cams:
-            color = '#FBB000AA'  # Arancione per la telecamera selezionata e abilitata
+            color = '#FBB000AA'
         elif i in enabled_cams:
-            color = '#899DDD80'  # Blu per le telecamere abilitate ma non selezionate
+            color = '#899DDD80'
         else:
-            color = '#CCCCCC60'  # Grigio per le telecamere disabilitate
+            color = '#CCCCCC60'
         
-        # Crea il settore FOV
         large_arc = 1 if (2 * half_fov) > math.pi else 0
         path_d = f"M {center} {center} L {x1} {y1} A {radius} {radius} 0 {large_arc} 1 {x2} {y2} Z"
         svg_elements.append(f'<path d="{path_d}" fill="{color}"/>')
         
-        # Aggiungi i numeri delle camere intorno al cerchio
-        label_radius = radius + 25  # Posiziona i numeri leggermente fuori dal cerchio
+        label_radius = radius + 25
         label_x = center + label_radius * math.cos(ang)
         label_y = center + label_radius * math.sin(ang)
-        camera_number = i + 1  # La numerazione parte da 1, non da 0
+        camera_number = i + 1
         
-        # Imposta il colore del testo in base alla selezione
         if i == selected_idx and i in enabled_cams:
             text_color = '#FF8800'
         elif i in enabled_cams:
@@ -92,7 +102,6 @@ def draw_interactive_top_view_svg(splits: int, fov: float, selected_idx: int, en
         else:
             text_color = '#999999'
         
-        # Numero con cerchio di sfondo
         svg_elements.append(f'''
             <circle cx="{label_x}" cy="{label_y}" r="12" fill="rgba(255,255,255,0.9)" stroke="{text_color}" stroke-width="1"/>
             <text x="{label_x}" y="{label_y + 4}" text-anchor="middle" font-family="Arial, sans-serif" 
@@ -101,7 +110,6 @@ def draw_interactive_top_view_svg(splits: int, fov: float, selected_idx: int, en
             </text>
         ''')
     
-    # Crea l'SVG completo senza outer div
     svg_content = f'''
     <svg width="{size}" height="{size}" style="background: transparent;">
         {"".join(svg_elements)}    </svg>
@@ -109,59 +117,89 @@ def draw_interactive_top_view_svg(splits: int, fov: float, selected_idx: int, en
     
     return svg_content, size, center, radius
 
+@st.cache_data
 def draw_side_view_svg(fov: float, pitch: float):
-    """Crea la side view usando SVG per conformare lo stile con la top view"""
-    size = 240  # Stessa dimensione della top view
+    """Crea la side view usando SVG"""
+    size = 240
     center = size // 2
-    radius = 80  # Stesso raggio della top view
+    radius = 80
     
-    svg_elements = []
-    
-    # Use a group to apply the rotation to all elements
     group_elements = []
-
-    # Cerchio di sfondo
     group_elements.append(f'<circle cx="{center}" cy="{center}" r="{radius}" fill="none" stroke="lightgray" stroke-width="2"/>')
     
-    # Calcola il settore verticale FOV
     vfov = 2 * math.atan(math.tan(math.radians(fov)/2))
     pitch_rad = math.radians(pitch)
     
-    # Punti per il settore FOV verticale
-    # For side view, angle is from horizontal (0 radians). Pitch rotates it.
     x1 = center + radius * math.cos(pitch_rad - vfov/2)
     y1 = center + radius * math.sin(pitch_rad - vfov/2)
     x2 = center + radius * math.cos(pitch_rad + vfov/2)
     y2 = center + radius * math.sin(pitch_rad + vfov/2)
     
-    # Crea il settore FOV
     large_arc = 1 if vfov > math.pi else 0
     path_d = f"M {center} {center} L {x1} {y1} A {radius} {radius} 0 {large_arc} 1 {x2} {y2} Z"
     group_elements.append(f'<path d="{path_d}" fill="#FBB000AA"/>')
-    
-    # Linea orizzontale di riferimento (orizzonte)
     group_elements.append(f'<line x1="{center - radius}" y1="{center}" x2="{center + radius}" y2="{center}" stroke="#888888" stroke-width="1" stroke-dasharray="3,3"/>')
     
-    # Wrap elements in a group and apply 180 degree rotation
     svg_content = f'''
     <svg width="{size}" height="{size}" style="background: transparent;">
         <g transform="rotate(180, {center}, {center})">
             {"".join(group_elements)}
-        </g>
-    </svg>
+        </g>    </svg>
     '''
     
     return svg_content
 
-def compute_auto_resolution(w: int, h: int, fov: float) -> int:
-   max_w = w * (fov / 360)
-   vfov = 2*math.atan(math.tan(math.radians(fov)/2)*(h/w))
-   max_h = h * (math.degrees(vfov) / 180)
-   return max(1, int(min(max_w, max_h)))
+# Funzione per caricare immagini dalla cartella root con cache
+@st.cache_data
+def load_root_images():
+    """Carica automaticamente le immagini dalla cartella root"""
+    root_folder = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
+    image_extensions = ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG']
+    root_images = []
+    
+    try:
+        for file in os.listdir(root_folder):
+            if any(file.endswith(ext) for ext in image_extensions):
+                root_images.append(os.path.join(root_folder, file))
+    except:
+        pass
+    
+    return sorted(root_images)
+
+# Inizializzazione session state centralizzata
+def init_session_state():
+    """Inizializza tutti gli stati della sessione"""
+    if 'initialized' not in st.session_state:
+        st.session_state.initialized = True
+        st.session_state.camera = 0
+        st.session_state.enabled_cams = list(range(5))  # Default 5 splits
+        st.session_state.prev_splits = 5
+        st.session_state.last_frame_idx = 0
+        st.session_state.last_yaw_offset = 0
+
+init_session_state()
+
+# CSS per ridurre il flashing
+st.markdown("""
+<style>
+    .stSlider > div > div > div > div {
+        transition: all 0.1s ease-in-out;
+    }
+    .stButton > button {
+        transition: all 0.1s ease-in-out;
+    }
+    .stMultiSelect > div {
+        transition: all 0.1s ease-in-out;
+    }
+    /* Riduce l'animazione di ricaricamento */
+    .stApp > div {
+        transition: none !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # ----------------------------------------------------------------------------
 # Streamlit App
-st.set_page_config(page_title="Split 4 Splat", layout="wide")
 
 # Sposta il titolo nella sidebar
 st.sidebar.markdown(
@@ -174,32 +212,9 @@ st.sidebar.markdown(
     unsafe_allow_html=True
 )
 
-# Rimuovi il titolo dall'area principale
-# st.title("Split 4 Splat – equirectangular 2 persp splitter")
-
-# Sidebar: Input mode e Dropzone/file browse button
-# mode = st.sidebar.radio("Input mode", ["Images sequence", "Local video folder"], key="mode")
-
-# Funzione per caricare immagini dalla cartella root
-def load_root_images():
-    """Carica automaticamente le immagini dalla cartella root (dove si trova app.py)"""
-    root_folder = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
-    image_extensions = ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG']
-    root_images = []
-  
-    try:
-        for file in os.listdir(root_folder):
-            if any(file.endswith(ext) for ext in image_extensions):
-               root_images.append(os.path.join(root_folder, file))
-    except:
-       pass
-  
-    return sorted(root_images)
-
-# Usa solo la modalità Images sequence
+# Input handling
 items = st.sidebar.file_uploader("Drop images here (PNG/JPG)", type=["png","jpg","jpeg"], accept_multiple_files=True, key="uploader")
 
-# Se non ci sono file caricati, prova a caricare dalle immagini root
 if not items:
     root_images = load_root_images()
     if root_images:
@@ -247,33 +262,28 @@ with col1:
            frame_idx = 0
            st.text("Frame index: 0 (single frame)")
        else:
-           frame_idx = st.slider("Frame index", 0, max(0, total - 1), 0)
+           frame_idx = st.slider("Frame index", 0, max(0, total - 1), 0, key="frame_slider")
    else:
        st.warning("No frames available yet.")
        st.stop()
   
    # Yaw offset
-   yaw_offset = st.slider("Yaw offset (°)", 0, 359, 0)
+   yaw_offset = st.slider("Yaw offset (°)", 0, 359, 0, key="yaw_slider")
   
    # Number of splits
-   splits = st.slider("Number of splits", 1, 32, 5)
+   splits = st.slider("Number of splits/cameras", 1, 32, 5, key="splits_slider")
    
-   # Inizializza o aggiorna le variabili di stato quando il numero di splits cambia
-   if 'prev_splits' not in st.session_state:
+   # Gestione splits change ottimizzata
+   if st.session_state.prev_splits != splits:
        st.session_state.prev_splits = splits
        st.session_state.camera = 0
        st.session_state.enabled_cams = list(range(splits))
-   elif st.session_state.prev_splits != splits:
-       # Il numero di splits è cambiato, reset tutto
-       st.session_state.prev_splits = splits
-       st.session_state.camera = 0
-       st.session_state.enabled_cams = list(range(splits))  # Abilita tutte le camere
   
    # FOV
-   fov = st.slider("FOV°", 20, 160, 90)
+   fov = st.slider("Fielf Of View°", 20, 160, 90, key="fov_slider")
   
    # Gestione click sulle camere dalla top view usando bottoni semplici
-   def create_camera_buttons_grid(splits, selected_idx, enabled_cams):
+   def create_camera_buttons_optimized(splits, selected_idx, enabled_cams):
        """Crea una griglia di bottoni circolari per selezionare le camere"""
        st.markdown("""
        <style>
@@ -334,9 +344,9 @@ with col1:
                            if cam_idx not in st.session_state.enabled_cams:
                                st.session_state.enabled_cams.append(cam_idx)
                                st.session_state.enabled_cams.sort()
-                           st.rerun()
+                           return True  # Cambia da st.rerun() a return True
                    
-       return True
+       return False  # Aggiungi questo return
   
    # Enable cameras (1-based labels) - Usa session_state
    camera_labels = [f"Camera {i+1}" for i in range(splits)]
@@ -388,56 +398,69 @@ with col2:
 
 # Elaborazione dell'immagine e aggiornamento dei placeholder
 if items:
-   if is_video:
-       arr_raw = reader.get_data(items[frame_idx])
+   # Controlla se ci sono stati cambiamenti significativi
+   params_changed = (
+       st.session_state.last_frame_idx != frame_idx or
+       st.session_state.last_yaw_offset != yaw_offset
+   )
+   
+   if params_changed or 'current_image' not in st.session_state:
+       # Carica l'immagine solo se necessario
+       if isinstance(items[frame_idx], str):
+           arr_raw = load_image_cached(items[frame_idx])
+       else:
+           arr_raw = np.array(Image.open(items[frame_idx]).convert("RGBA"))
+       
+       shift_px = int(yaw_offset * arr_raw.shape[1] / 360)
+       arr_shifted = np.roll(arr_raw, shift_px, axis=1)
+       e_img = to_rgba(arr_shifted)
+       
+       # Salva nell'session state per evitare ricalcoli
+       st.session_state.current_image = arr_raw
+       st.session_state.current_e_img = e_img
+       st.session_state.last_frame_idx = frame_idx
+       st.session_state.last_yaw_offset = yaw_offset
    else:
-       # Gestisce sia file caricati che percorsi locali
-       if isinstance(items[frame_idx], str):  # Percorso locale
-           arr_raw = np.array(Image.open(items[frame_idx]).convert("RGBA"))
-       else:  # File caricato tramite uploader
-           arr_raw = np.array(Image.open(items[frame_idx]).convert("RGBA"))
-
-   shift_px = int(yaw_offset * arr_raw.shape[1] / 360)
-   arr_shifted = np.roll(arr_raw, shift_px, axis=1)
-   e_img = to_rgba(arr_shifted)
-
-   # Aggiorna l'anteprima equirectangular (versione compatta)
-   with preview_placeholder.container():
-       # Center the equirectangular preview using HTML/CSS
+       # Usa i dati cached
+       arr_raw = st.session_state.current_image
+       e_img = st.session_state.current_e_img
+   
+   # Aggiorna preview solo se necessario
+   if params_changed or 'preview_image' not in st.session_state:
        img = make_preview(e_img)
        buf = io.BytesIO()
        img.save(buf, format="PNG")
        img_b64 = base64.b64encode(buf.getvalue()).decode()
+       st.session_state.preview_image = img_b64
+   
+   with preview_placeholder.container():
        st.markdown(
            f"<div style='display: flex; justify-content: center;'>"
-           f"<img src='data:image/png;base64,{img_b64}' width='500'/>"
+           f"<img src='data:image/png;base64,{st.session_state.preview_image}' width='500'/>"
            f"</div>",
            unsafe_allow_html=True,
        )
-
-   # Aggiorna la camera preview - ORA CONSIDERA ANCHE IL YAW OFFSET
+   
+   # Camera preview ottimizzata
    yaw_cam = (st.session_state.camera * 360 / splits + yaw_offset) % 360
    auto_res = compute_auto_resolution(e_img.shape[1], e_img.shape[0], fov)
-   # Increase the preview resolution for a sharper, larger image
-   # Riduci la risoluzione della camera preview per renderla più piccola
-   preview_res = max(1, int(auto_res * 0.9))  # Use 90% of auto_res instead of half
-   # IMPORTANTE: Ora la camera preview usa l'immagine originale ma con yaw offset nel calcolo
+   preview_res = max(1, int(auto_res * 0.9))
+   
    persp = get_perspective(arr_raw, fov, yaw_cam, pitch, preview_res)
    img = Image.fromarray(to_rgba(persp))
    bg = create_checkboard(preview_res, preview_res).convert("RGBA")
    bg.paste(img, (0, 0), img)
+   
    with camera_preview_placeholder:
-       # Centra la camera preview
        preview_col1, preview_col2, preview_col3 = st.columns([1, 3, 1])
        with preview_col2:
            st.image(bg, caption=f"Yaw {yaw_cam:.1f}°, Pitch {pitch}°")
-
-   # Aggiorna le viste
-   # Top view con griglia di bottoni sotto
-   svg_content, size, center, radius = draw_interactive_top_view_svg(splits, fov, st.session_state.camera, st.session_state.enabled_cams)
+   
+   # Aggiorna le viste con cache
+   enabled_cams_tuple = tuple(st.session_state.enabled_cams)  # Converte per cache
+   svg_content, size, center, radius = draw_interactive_top_view_svg(splits, fov, st.session_state.camera, enabled_cams_tuple)
    
    with top_view_placeholder.container():
-       # Mostra l'SVG della top view, centrato
        st.markdown(
            f"<div style='display: flex; justify-content: center;'>{svg_content}</div>",
            unsafe_allow_html=True
@@ -445,12 +468,12 @@ if items:
        
        # Spaziatura ridotta
        st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
-       
-       # Griglia di bottoni per selezionare le camere
        st.markdown("<div style='text-align: center; font-size: 11px; color: #666; margin-bottom: 6px;'>Click to select camera:</div>", unsafe_allow_html=True)
-       create_camera_buttons_grid(splits, st.session_state.camera, st.session_state.enabled_cams)
+       
+       camera_changed = create_camera_buttons_optimized(splits, st.session_state.camera, st.session_state.enabled_cams)
+       if camera_changed:
+           st.rerun()
    
-   # Side view con stile SVG uniforme, centrato e ruotato
    with side_view_placeholder.container():
        rotated_svg_content = draw_side_view_svg(fov, pitch)
        st.markdown(
@@ -477,12 +500,11 @@ if process_button:
            if is_video:
                arr_i = reader.get_data(items[i])
            else:
-               # Gestisce sia file caricati che percorsi locali
-               if isinstance(items[i], str):  # Percorso locale
+               if isinstance(items[i], str):
+                   arr_i = load_image_cached(items[i])
+               else:
                    arr_i = np.array(Image.open(items[i]).convert("RGBA"))
-               else:  # File caricato tramite uploader
-                   arr_i = np.array(Image.open(items[i]).convert("RGBA"))
-           # Applica offset orizzontale
+            
            shift_val = int(yaw_offset * arr_i.shape[1] / 360)
            rgba = to_rgba(np.roll(arr_i, shift_val, axis=1))
            for c in st.session_state.enabled_cams:
@@ -490,9 +512,10 @@ if process_button:
                tile = get_perspective(rgba, fov, yaw_c, pitch, compute_auto_resolution(rgba.shape[1], rgba.shape[0], fov))
                buf = io.BytesIO()
                Image.fromarray(to_rgba(tile)).save(buf, format="PNG")
-               zf.writestr(f"{base}_cam{c+1:02d}.png", buf.getvalue())  # Usa c+1 per la numerazione 1-based nei nomi dei file
+               zf.writestr(f"{base}_cam{c+1:02d}.png", buf.getvalue())
                count += 1
                progress_container.progress(count / total_ops)
+   
    mem.seek(0)
    # Show the success message and download button in order
    success_container.success("Processing completed!")
