@@ -248,7 +248,15 @@ with col1:
    st.subheader("Controls")
   
    # Frame index
-   frame_idx = st.slider("Frame index", 0, total - 1, 0)
+   if total >= 1:
+       if total == 1:
+           frame_idx = 0
+           st.text("Frame index: 0 (single frame)")
+       else:
+           frame_idx = st.slider("Frame index", 0, max(0, total - 1), 0)
+   else:
+       st.warning("No frames available yet.")
+       st.stop()
   
    # Yaw offset
    yaw_offset = st.slider("Yaw offset (°)", 0, 359, 0)
